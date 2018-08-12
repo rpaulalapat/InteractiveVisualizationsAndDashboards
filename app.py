@@ -1,7 +1,10 @@
 # import necessary libraries
+import numpy as np
+
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import Session
-from sqlalchemy import create_engine, func
+from sqlalchemy import create_engine, Column, Integer, String, Float, inspect
+
 
 from flask import (
     Flask,
@@ -20,98 +23,90 @@ app = Flask(__name__)
 #################################################
 # Database Setup
 #################################################
+engine = create_engine("sqlite:///Datasets/belly_button_biodiversity.sqlite")
+conn = engine.connect()
+inspector = inspect(engine)
+inspector.get_table_names()
+Base = automap_base()
+Base.prepare(engine, reflect=True)
+Otu = Base.classes.otu
+Samples = Base.classes.samples
+SamplesMetadata = Base.classes.samples_metadata
+session = Session(engine)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = "sqlite:///belly_button_biodiversity.sqlite"
-db = SQLAlchemy(app)
 
-from .models import Otu, Samples, SamplesMetadata
-
-##################################################
-# Routes
-##################################################
-
-# create home route that renders index.html template
+# create route that renders index.html template
 @app.route("/")
 def home():
     return render_template("index.html")
 
-#List of sample names
+
 @app.route('/names')
-def samples():
-    results = db.session.query(SamplesMetadata.SAMPLEID).all()
-    samples_list = [('BB_' + str(id)) for (id,) in results]
-    return jsonify(samples_list)
+def name():
+    """List of Sample Names."""
+    names = []
+    columns = inspector.get_columns('samples')
+    for c in columns:
+        names.append(c['name'])
+    del names[0]
+    return jsonify(names)
 
-#List of OTU descriptions.
 @app.route('/otu')
-def otuDesc():
-    results = db.session.query(Otu.LOWEST_TAXONOMIC_UNIT_FOUND).all()
-    name_list = [name for (name,) in results]
-    return jsonify(name_list)
+def otu():
+    """List of otu descriptions."""
+    desc = session.query(Otu.lowest_taxonomic_unit_found).all()
+    description = []
+    for d in desc:
+        description.append(d[0])
+    return jsonify(description)
 
-#Returns a json dictionary of sample metadata
 @app.route('/metadata/<sample>')
-def metadataFor(sample):
-    sample_id = sample.split('_')
-    results = db.session.query(SamplesMetadata.AGE,
-                               SamplesMetadata.BBTYPE,
-                               SamplesMetadata.ETHNICITY,
-                               SamplesMetadata.GENDER,
-                               SamplesMetadata.LOCATION,
-                               SamplesMetadata.SAMPLEID)\
-                        .filter(SamplesMetadata.SAMPLEID == int(sample_id))\
-                        .all()
+def metadata(sample):
+    search_term = int(sample.replace("BB_", ""))
+    x = 0
+    SAMPLES = session.query(SamplesMetadata.SAMPLEID,SamplesMetadata.AGE, SamplesMetadata.BBTYPE,
+        SamplesMetadata.ETHNICITY, SamplesMetadata.GENDER, SamplesMetadata.LOCATION).all()
+    data = {}
+    for samp in SAMPLES:
+        if SAMPLES[x][0] == search_term:
+            data["AGE"] = SAMPLES[x][1]
+            data["BBTYPE"] = SAMPLES[x][2] 
+            data["ETHNICITY"] = SAMPLES[x][3]
+            data["GENDER"] = SAMPLES[x][4]
+            data["LOCATION"] = SAMPLES[x][5]
+            data["SAMPLEID"] = SAMPLES[x][0]
+            return jsonify(data)
+        x += 1
+    return jsonify({"error": f"Sample with id {sample} not found."}), 404
 
-    for result in results:
-        sample_data = [{
-            "AGE": result[0],
-            "BBTYPE": result[1],
-            "ETHNICITY": result[2],
-            "GENDER": result[3],
-            "LOCATION": result[4],
-            "SAMPLEID": result[5]
-        }]
-
-    return jsonify(sample_data)
-
-
-#Returns an integer value for the weekly washing frequency for sample
 @app.route('/wfreq/<sample>')
-def wfreqFor(sample):
-    sample_id = sample.split('_')
-    results = db.session.query(SamplesMetadata.WFREQ,)\
-                        .filter(SamplesMetadata.SAMPLEID == int(sample_id))\
-                        .all()
+def wfreq(sample):
+    search_term = int(sample.replace("BB_", ""))
+    x = 0
+    SAMPLES = session.query(SamplesMetadata.SAMPLEID,SamplesMetadata.WFREQ).all()
+    for samp in SAMPLES:
+        if SAMPLES[x][0] == search_term:
+            wfreq = SAMPLES[x][1]
+            return jsonify(wfreq)
+        x += 1
+    return jsonify({"error": f"Sample with id {sample} not found."}), 404
 
-    for result in results:
-        sample_data = [{
-            "WFREQ": result[0],
-        }]
-
-    return jsonify(sample_data)
-
-#OTU IDs and Sample Values for a given sample.
-@app.route('/samples/<sample>')
-def sampleValues(sample):
-    otu_id_list = []
-    sample_value_list = []
-    sample_col = f'Samples.{sample}'
-    results = db.session.query(Samples.OTU_ID,
-                               sample_col)\
-                .order_by(sample_col)\
-                .all()
-
-    for result in results:
-        otu_id_list.append(result[0])
-        sample_value_list.append(result[1])
-
-    sample_data = [{
-        "otu_ids": otu_id_list,
-        "sample_values": sample_value_list
-    }]
-
-    return jsonify(sample_data)
-
+@app.route('/samples/<variable>')
+def samples(variable):
+    var = f'Samples.{variable}'
+    SAMPLES = session.query(Samples.otu_id, var).order_by(var).all()
+    x = len(SAMPLES) -1
+    otu_ids = []
+    sample_values = []
+    for sample in SAMPLES:
+        otu_ids.append(SAMPLES[x][0])
+        sample_values.append(SAMPLES[x][1])
+        x -=1
+    dict = {}
+    dict["otu_ids"] = otu_ids
+    dict["sample_values"] = sample_values
+    list = [dict]
+    return jsonify(list)
 
 if __name__ == "__main__":
     app.run()

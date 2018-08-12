@@ -1,5 +1,5 @@
-from .app import db
 
+from .app import db
 
 class Otu(db.Model):
     __tablename__ = 'otu'
@@ -10,7 +10,7 @@ class Otu(db.Model):
     def __repr__(self):
         return '<Otu %r>' % (str(self.name))
 
-class Sample(db.Model):
+class Samples(db.Model):
     __tablename__ = 'samples'
 
     otu_id = db.Column(db.Integer, primary_key=True)
